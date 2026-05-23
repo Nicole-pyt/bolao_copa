@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime
+import pytz
 
 st.set_page_config(page_title="Bolão da Copa", layout="wide", page_icon="⚽")
 st.title("🏆 Bolão da Copa 2026")
@@ -8,7 +9,8 @@ st.title("🏆 Bolão da Copa 2026")
 # CONFIGURAÇÃO
 ARQUIVO_APOSTAS = 'respostas_forms.xlsx'
 ABA_PLANILHA = 'Respostas ao formulário 1'
-HOJE = date.today()
+TZ_BRASILIA = pytz.timezone('America/Sao_Paulo')
+HOJE = datetime.now(TZ_BRASILIA).date()
 
 # RESULTADOS - cadastra todos os jogos previstos aqui
 RESULTADOS = {
@@ -44,13 +46,13 @@ def jogo_ja_aconteceu(data_jogo_str):
     data_jogo = datetime.strptime(data_jogo_str, '%Y-%m-%d').date()
     return HOJE >= data_jogo
 
-@st.cache_data
+@st.cache_data(ttl=600)
 def carregar_apostas():
     try:
         df = pd.read_excel(ARQUIVO_APOSTAS, sheet_name=ABA_PLANILHA)
     except:
         df = pd.read_excel(ARQUIVO_APOSTAS)
-    
+
     df = df.rename(columns={
         'Nome completo': 'Nome',
         'Qual o jogo?': 'Jogo',
@@ -59,6 +61,28 @@ def carregar_apostas():
     })
     df['Jogo'] = df['Jogo'].str.strip()
     return df
+
+@st.cache_data
+def calcula_ranking(_df_apostas, _resultados, _hoje):
+    ranking = []
+    for nome in _df_apostas['Nome'].unique():
+        apostas_user = _df_apostas[_df_apostas['Nome'] == nome]
+        total_pontos = 0
+        jogos_computados = 0
+        for _, row in apostas_user.iterrows():
+            jogo = row['Jogo']
+            if jogo in _resultados:
+                res = _resultados[jogo]
+                if _hoje >= datetime.strptime(res['data'], '%Y-%m-%d').date():
+                    pts = calcular_pontos(row['Palpite_Casa'], row['Palpite_Fora'], res['casa'], res['fora'])
+                    total_pontos += pts
+                    jogos_computados += 1
+        ranking.append({'Nome': nome, 'Pontos': total_pontos, 'Jogos': jogos_computados})
+
+    df_ranking = pd.DataFrame(ranking).sort_values(['Pontos', 'Jogos'], ascending=[False, False]).reset_index(drop=True)
+    df_ranking.index += 1
+    df_ranking.index.name = 'Pos'
+    return df_ranking
 
 df_apostas = carregar_apostas()
 
@@ -69,9 +93,9 @@ with tab1:
     jogos_cadastrados = list(RESULTADOS.keys())
     jogos_apostados = df_apostas['Jogo'].unique().tolist()
     todos_jogos = sorted(list(set(jogos_cadastrados + jogos_apostados)))
-    
+
     jogo_selecionado = st.selectbox("Selecione o jogo:", todos_jogos)
-    
+
     if jogo_selecionado in RESULTADOS:
         res = RESULTADOS[jogo_selecionado]
         if jogo_ja_aconteceu(res['data']):
@@ -83,9 +107,9 @@ with tab1:
     else:
         st.info("Jogo cadastrado sem resultado previsto")
         jogo_finalizado = False
-    
+
     palpites = df_apostas[df_apostas['Jogo'] == jogo_selecionado][['Nome', 'Palpite_Casa', 'Palpite_Fora']].copy()
-    
+
     if not palpites.empty:
         palpites['Palpite'] = palpites['Palpite_Casa'].astype(str) + ' x ' + palpites['Palpite_Fora'].astype(str)
         if jogo_selecionado in RESULTADOS and jogo_finalizado:
@@ -102,37 +126,20 @@ with tab1:
 
 with tab2:
     st.header("Ranking Geral")
-    ranking = []
-    for nome in df_apostas['Nome'].unique():
-        apostas_user = df_apostas[df_apostas['Nome'] == nome]
-        total_pontos = 0
-        jogos_computados = 0
-        for _, row in apostas_user.iterrows():
-            jogo = row['Jogo']
-            if jogo in RESULTADOS:
-                res = RESULTADOS[jogo]
-                if jogo_ja_aconteceu(res['data']):
-                    pts = calcular_pontos(row['Palpite_Casa'], row['Palpite_Fora'], res['casa'], res['fora'])
-                    total_pontos += pts
-                    jogos_computados += 1
-        ranking.append({'Nome': nome, 'Pontos': total_pontos, 'Jogos': jogos_computados})
-    
-    df_ranking = pd.DataFrame(ranking).sort_values(['Pontos', 'Jogos'], ascending=[False, False]).reset_index(drop=True)
-    df_ranking.index += 1
-    df_ranking.index.name = 'Pos'
+    df_ranking = calcula_ranking(df_apostas, RESULTADOS, HOJE)
     st.dataframe(df_ranking, use_container_width=True)
 
 with tab3:
     st.header("Regras de Pontuação")
     st.write("""
-    **5 pontos**: Acertar o vencedor ou empate 
-             
-    **3 pontos**: Acertar o placar exato 
-             
-    **2 pontos**: Acertar gols do time da casa 
-             
-    **2 pontos**: Acertar gols do time visitante 
-    
+    **5 pontos**: Acertar o vencedor ou empate
+
+    **3 pontos**: Acertar o placar exato
+
+    **2 pontos**: Acertar gols do time da casa
+
+    **2 pontos**: Acertar gols do time visitante
+
     *Todas as regras somam. Placar exato = 12 pontos*
     """)
-    st.caption(f"Data de hoje: {HOJE.strftime('%d/%m/%Y')} | Jogos são contabilizados automaticamente após a data")
+    st.caption(f"Data de hoje: {HOJE.strftime('%d/%m/%Y')} - Horário de Brasília | Jogos são contabilizados automaticamente após a data")
