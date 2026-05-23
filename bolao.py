@@ -7,7 +7,7 @@ st.set_page_config(page_title="Bolão da Copa", layout="wide", page_icon="⚽")
 st.title("🏆 Bolão da Copa 2026")
 
 # CONFIGURAÇÃO
-ARQUIVO_APOSTAS = 'respostas_forms.xlsx'
+ARQUIVO_APOSTAS = 'respostas_forms.csv'
 ABA_PLANILHA = 'Respostas ao formulário 1'
 TZ_BRASILIA = pytz.timezone('America/Sao_Paulo')
 HOJE = datetime.now(TZ_BRASILIA).date()
@@ -48,11 +48,7 @@ def jogo_ja_aconteceu(data_jogo_str):
 
 @st.cache_data(ttl=600)
 def carregar_apostas():
-    try:
-        df = pd.read_excel(ARQUIVO_APOSTAS, sheet_name=ABA_PLANILHA)
-    except:
-        df = pd.read_excel(ARQUIVO_APOSTAS)
-
+    df = pd.read_csv('respostas_forms.csv')
     df = df.rename(columns={
         'Nome completo': 'Nome',
         'Qual o jogo?': 'Jogo',
